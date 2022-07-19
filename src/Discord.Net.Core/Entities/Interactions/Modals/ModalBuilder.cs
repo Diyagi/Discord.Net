@@ -79,7 +79,18 @@ namespace Discord
         /// <returns>The current builder.</returns>
         public ModalBuilder AddTextInput(TextInputBuilder component)
         {
-            Components.WithTextInput(component);
+            Components.WithMessageComponent(component.Build());
+            return this;
+        }
+
+        /// <summary>
+        ///     Adds a component to the current builder.
+        /// </summary>
+        /// <param name="component">The component to add.</param>
+        /// <returns>The current builder.</returns>
+        public ModalBuilder AddSelectMenu(SelectMenuBuilder component)
+        {
+            Components.WithMessageComponent(component.Build());
             return this;
         }
 
@@ -96,6 +107,19 @@ namespace Discord
         public ModalBuilder AddTextInput(string label, string customId, TextInputStyle style = TextInputStyle.Short, 
             string placeholder = "", int? minLength = null, int? maxLength = null, bool? required = null, string value = null)
             => AddTextInput(new(label, customId, style, placeholder, minLength, maxLength, required, value));
+
+        /// <summary>
+        ///     Adds a <see cref="SelectMenuBuilder"/> to the current builder.
+        /// </summary>
+        /// <param name="customId">The custom id of this select menu.</param>
+        /// <param name="options">The options for this select menu.</param>
+        /// <param name="placeholder">The placeholder of this select menu.</param>
+        /// <param name="maxValues">The max values of this select menu.</param>
+        /// <param name="minValues">The min values of this select menu.</param>
+        /// <param name="isDisabled">Disabled this select menu or not.</param>
+        /// <returns>The current builder.</returns>
+        public ModalBuilder AddSelectMenu(string customId, List<SelectMenuOptionBuilder> options, string placeholder = null, int maxValues = 1, int minValues = 1, bool isDisabled = false)
+            => AddSelectMenu(new(customId, options, placeholder, maxValues, minValues, isDisabled));
 
         /// <summary>
         ///     Adds multiple components to the current builder.
@@ -121,7 +145,7 @@ namespace Discord
                 throw new ArgumentException("Modals must have a custom id.", nameof(CustomId));
             if (string.IsNullOrWhiteSpace(Title))
                 throw new ArgumentException("Modals must have a title.", nameof(Title));
-            if (Components.ActionRows?.SelectMany(x => x.Components).Any(x => x.Type != ComponentType.TextInput) ?? false)
+            if (Components.ActionRows?.SelectMany(x => x.Components).Any(x => x.Type != ComponentType.TextInput && x.Type != ComponentType.SelectMenu) ?? false)
                 throw new ArgumentException($"Only TextInputComponents are allowed.", nameof(Components));
 
             return new(Title, CustomId, Components.Build());
@@ -186,6 +210,11 @@ namespace Discord
                 case TextInputComponent text:
                     WithTextInput(text.Label, text.CustomId, text.Style, text.Placeholder, text.MinLength, text.MaxLength, row);
                     break;
+                case SelectMenuComponent select:
+                    WithSelectmenu(select.CustomId,
+                        select.Options?.Select(x => new SelectMenuOptionBuilder(x.Label, x.Value, x.Description, x.Emote, x.IsDefault)).ToList(),
+                        select.Placeholder, select.MaxValues, select.MinValues, select.IsDisabled, row);
+                    break;
                 case ActionRowComponent actionRow:
                     foreach (var cmp in actionRow.Components)
                         AddComponent(cmp, row);
@@ -207,7 +236,21 @@ namespace Discord
         public ModalComponentBuilder WithTextInput(string label, string customId, TextInputStyle style = TextInputStyle.Short, 
             string placeholder = null, int? minLength = null, int? maxLength = null, int row = 0, bool? required = null,
             string value = null)
-            => WithTextInput(new(label, customId, style, placeholder, minLength, maxLength, required, value), row);
+            => WithMessageComponent(new TextInputBuilder(label, customId, style, placeholder, minLength, maxLength, required, value).Build(), row);
+
+        /// <summary>
+        ///     Adds a <see cref="SelectMenuBuilder"/> to the <see cref="ComponentBuilder"/> at the specific row.
+        ///     If the row cannot accept the component then it will add it to a row that can.
+        /// </summary>
+        /// <param name="customId">The custom id of this select menu.</param>
+        /// <param name="options">The options for this select menu.</param>
+        /// <param name="placeholder">The placeholder of this select menu.</param>
+        /// <param name="maxValues">The max values of this select menu.</param>
+        /// <param name="minValues">The min values of this select menu.</param>
+        /// <param name="isDisabled">Disabled this select menu or not.</param>
+        /// <returns>The current builder.</returns>
+        public ModalComponentBuilder WithSelectmenu(string customId, List<SelectMenuOptionBuilder> options, string placeholder = null, int maxValues = 1, int minValues = 1, bool isDisabled = false, int row = 0)
+            => WithMessageComponent(new SelectMenuBuilder(customId, options, placeholder, maxValues, minValues, isDisabled).Build(), row);
 
         /// <summary>
         ///     Adds a <see cref="TextInputBuilder"/> to the <see cref="ModalComponentBuilder"/> at the specific row.
@@ -218,23 +261,21 @@ namespace Discord
         /// <exception cref="InvalidOperationException">There are no more rows to add a text input to.</exception>
         /// <exception cref="ArgumentException"><paramref name="row"/> must be less than <see cref="MaxActionRowCount"/>.</exception>
         /// <returns>The current builder.</returns>
-        public ModalComponentBuilder WithTextInput(TextInputBuilder text, int row = 0)
+        public ModalComponentBuilder WithMessageComponent(IMessageComponent text, int row = 0)
         {
             Preconditions.LessThan(row, MaxActionRowCount, nameof(row));
-
-            var builtButton = text.Build();
 
             if (_actionRows == null)
             {
                 _actionRows = new List<ActionRowBuilder>
                 {
-                    new ActionRowBuilder().AddComponent(builtButton)
+                    new ActionRowBuilder().AddComponent(text)
                 };
             }
             else
             {
                 if (_actionRows.Count == row)
-                    _actionRows.Add(new ActionRowBuilder().AddComponent(builtButton));
+                    _actionRows.Add(new ActionRowBuilder().AddComponent(text));
                 else
                 {
                     ActionRowBuilder actionRow;
@@ -246,10 +287,10 @@ namespace Discord
                         _actionRows.Add(actionRow);
                     }
 
-                    if (actionRow.CanTakeComponent(builtButton))
-                        actionRow.AddComponent(builtButton);
+                    if (actionRow.CanTakeComponent(text))
+                        actionRow.AddComponent(text);
                     else if (row < MaxActionRowCount)
-                        WithTextInput(text, row + 1);
+                        WithMessageComponent(text, row + 1);
                     else
                         throw new InvalidOperationException($"There are no more rows to add {nameof(text)} to.");
                 }
